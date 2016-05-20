@@ -11,6 +11,7 @@ class GCMClient extends EventEmitter {
     super()
 
     this.draining = true
+    this.ackQueue = []
     this.queued = []
     this.acks = []
 
@@ -22,8 +23,10 @@ class GCMClient extends EventEmitter {
       legacySSL: true,
       preferredSaslMechanism: 'PLAIN'
     })
+
     this.client.connection.socket.setTimeout(0)
     this.client.connection.socket.setKeepAlive(true, 10000)
+
     this.client.on('online', this._onOnline.bind(this))
     this.client.on('close', this._onClose.bind(this))
     this.client.on('error', this._onError.bind(this))
@@ -107,6 +110,18 @@ class GCMClient extends EventEmitter {
       var message = stanza.getChildText('error').getChildText('text')
       this.emit('message-error', message)
     }
+    this._drainAckQueue()
+  }
+
+  _drainAckQueue () {
+    var availableSlots = this.availableAckSlots()
+    if (this.ackQueue.length && availableSlots) {
+      var acks = this.ackQueue.splice(0, availableSlots)
+      var i = acks.length
+      while (i--) {
+        this.send.apply(this, acks[i])
+      }
+    }
   }
 
   _send (json) {
@@ -126,23 +141,33 @@ class GCMClient extends EventEmitter {
       message_id: messageId,
       data: data
     }
+
     Object.keys(options).forEach((option) => {
       outData[option] = options[option]
     })
 
-    if (cb !== undefined) {
-      this.acks[messageId] = cb
+    if (this.availableAckSlots() <= 0) {
+      this.ackQueue.push(arguments)
     }
 
-    this._send(outData)
+    if (cb === undefined) {
+      return new Promise(resolve => {
+        this.acks[messageId] = resolve
+        this._send(outData)
+      })
+    } else {
+      this.acks[messageId] = cb
+      this._send(outData)
+      return cb
+    }
   }
 
   end () {
     this.client.end()
   }
 
-  isReady () {
-    return Object.keys(this.acks).length <= 100
+  availableAckSlots () {
+    return 100 - Object.keys(this.acks).length
   }
 }
 

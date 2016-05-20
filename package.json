@@ -6,18 +6,21 @@
   "dependencies": {
     "node-xmpp-client": "3.0.1"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "sinon": "^1.17.4",
+    "tap": "^5.7.1"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "tap --cov ./test/*.js"
   },
   "author": "",
   "license": "BSD-2-Clause",
   "homepage": "https://github.com/jacobp100/node-gcm-ccs",
   "bugs": {
-      "url": "https://github.com/jacobp100/node-gcm-ccs/issues"
+    "url": "https://github.com/jacobp100/node-gcm-ccs/issues"
   },
   "repository": {
-      "type": "git",
-      "url": "git://github.com/jacobp100/node-gcm-ccs.git"
+    "type": "git",
+    "url": "git://github.com/jacobp100/node-gcm-ccs.git"
   }
 }
