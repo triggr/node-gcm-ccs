@@ -1,144 +1,149 @@
-"use strict";
+'use strict'
 
-var xmpp = require('node-xmpp-client');
-var Events = require('events').EventEmitter;
-var crypto = require('crypto');
+var xmpp = require('node-xmpp-client')
+var EventEmitter = require('events')
+var crypto = require('crypto')
 
-module.exports = function GCMClient(projectId, apiKey) {
-	var events = new Events();
-	var draining = true;
-	var queued = [];
-	var acks = [];
 
-	var client = new xmpp.Client({
-		jid: projectId + '@gcm.googleapis.com',
-		password: apiKey,
-		port: 5235,
-		host: 'gcm.googleapis.com',
-		legacySSL: true,
-		preferredSaslMechanism : 'PLAIN'
-	});
+class GCMClient extends EventEmitter {
 
-	client.connection.socket.setTimeout(0);
-	client.connection.socket.setKeepAlive(true, 10000);
+  constructor (projectId, apiKey) {
+    super()
 
-	function _send(json) {
-		if (draining) {
-			queued.push(json);
-		} else {
-			var message = new xmpp.Stanza.Element('message').c('gcm', { xmlns: 'google:mobile:data' }).t(JSON.stringify(json));
-			client.send(message);
-		}
-	}
+    this.draining = true
+    this.queued = []
+    this.acks = []
 
-	client.on('online', function() {
-		events.emit('connected');
+    this.client = new xmpp.Client({
+      jid: projectId + '@gcm.googleapis.com',
+      password: apiKey,
+      port: 5235,
+      host: 'gcm.googleapis.com',
+      legacySSL: true,
+      preferredSaslMechanism: 'PLAIN'
+    })
+    this.client.connection.socket.setTimeout(0)
+    this.client.connection.socket.setKeepAlive(true, 10000)
+    this.client.on('online', this._onOnline.bind(this))
+    this.client.on('close', this._onClose.bind(this))
+    this.client.on('error', this._onError.bind(this))
+    this.client.on('stanza', this._onStanza.bind(this))
+  }
 
-		if (draining) {
-			draining = false;
-			var i = queued.length;
-			while (i--) {
-				_send(queued[i]);
-			}
-			queued = [];
-		}
-	});
+  _onOnline () {
+    this.emit('connected')
+    if (this.draining) {
+      this.draining = false
+      var i = this.queued.length
+      while (i--) {
+        this._send(this.queued[i])
+      }
+      this.queued = []
+    }
+  }
 
-	client.on('close', function() {
-		if (draining) {
-			client.connect();
-		} else {
-			events.emit('disconnected');
-		}
-	});
+  _onClose () {
+    if (this.draining) {
+      this.client.connect()
+    } else {
+      this.emit('disconnected')
+    }
+  }
 
-	client.on('error', function(e) {
-		events.emit('error', e);
-	});
+  _onError (e) {
+    this.emit('error', e)
+  }
 
-	client.on('stanza', function(stanza) {
-		if (stanza.is('message') && stanza.attrs.type !== 'error') {
-			var data = JSON.parse(stanza.getChildText('gcm'));
+  _onStanza (stanza) {
+    if (stanza.is('message') && stanza.attrs.type !== 'error') {
+      var data = JSON.parse(stanza.getChildText('gcm'))
 
-			if (!data || !data.message_id) {
-				return;
-			}
+      if (!data || !data.message_id) {
+        return
+      }
 
-			switch (data.message_type) {
-				case 'control':
-					if (data.control_type === 'CONNECTION_DRAINING') {
-						draining = true;
-					}
-					break;
+      switch (data.message_type) {
+        case 'control':
+          if (data.control_type === 'CONNECTION_DRAINING') {
+            this.draining = true
+          }
+          break
 
-				case 'nack':
-					if (data.message_id in acks) {
-						acks[data.message_id](data.error, data.message_id, data.from);
-						delete acks[data.message_id];
-					}
-					break;
+        case 'nack':
+          if (data.message_id in this.acks) {
+            this.acks[data.message_id](data.error, data.message_id, data.from)
+            delete this.acks[data.message_id]
+          }
+          break
 
-				case 'ack':
-					if (data.message_id in acks) {
-						acks[data.message_id](undefined, data.message_id, data.from);
-						delete acks[data.message_id];
-					}
-					break;
+        case 'ack':
+          if (data.message_id in this.acks) {
+            this.acks[data.message_id](undefined, data.message_id, data.from)
+            delete this.acks[data.message_id]
+          }
+          break
 
-				case 'receipt':
-					events.emit('receipt', data.message_id, data.from, data.category, data.data);
-					break;
+        case 'receipt':
+          this.emit('receipt', data.message_id, data.from, data.category, data.data)
+          break
 
-				default:
-					// Send ack, as per spec
-					if (data.from) {
-						_send({
-							to: data.from,
-							message_id: data.message_id,
-							message_type: 'ack'
-						});
+        default:
+          // Send ack, as per spec
+          if (data.from) {
+            this._send({
+              to: data.from,
+              message_id: data.message_id,
+              message_type: 'ack'
+            })
 
-						if (data.data) {
-							events.emit('message', data.message_id, data.from, data.category, data.data);
-						}
-					}
+            if (data.data) {
+              this.emit('message', data.message_id, data.from, data.category, data.data)
+            }
+          }
 
-					break;
-			}
-		} else {
-			var message = stanza.getChildText('error').getChildText('text');
-			events.emit('message-error', message);
-		}
-	});
+          break
+      }
+    } else {
+      var message = stanza.getChildText('error').getChildText('text')
+      this.emit('message-error', message)
+    }
+  }
 
-	function send(to, data, options, cb) {
-		var messageId = crypto.randomBytes(8).toString('hex');
+  _send (json) {
+    if (this.draining) {
+      this.queued.push(json)
+    } else {
+      var message = new xmpp.Stanza.Element('message').c('gcm', { xmlns: 'google:mobile:data' }).t(JSON.stringify(json))
+      this.client.send(message)
+    }
+  }
 
-		var outData = {
-			to: to,
-			message_id: messageId,
-			data: data
-		};
-		Object.keys(options).forEach(function(option) {
-			outData[option] = options[option];
-		});
+  send (to, data, options, cb) {
+    var messageId = crypto.randomBytes(8).toString('hex')
 
-		if (cb !== undefined) {
-			acks[messageId] = cb;
-		}
+    var outData = {
+      to: to,
+      message_id: messageId,
+      data: data
+    }
+    Object.keys(options).forEach((option) => {
+      outData[option] = options[option]
+    })
 
-		_send(outData);
-	}
+    if (cb !== undefined) {
+      this.acks[messageId] = cb
+    }
 
-	function end() {
-		client.end();
-	}
-	function isReady(){
+    this._send(outData)
+  }
 
-	 return Object.keys(acks).length <=100;
-	}
-	events.end = end;
-	events.send = send;
-	events.isReady= isReady;
-	return events;
-};
+  end () {
+    this.client.end()
+  }
+
+  isReady () {
+    return Object.keys(this.acks).length <= 100
+  }
+}
+
+module.exports = GCMClient
