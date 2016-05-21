@@ -4,6 +4,8 @@ var xmpp = require('node-xmpp-client')
 var snapshot = xmpp.Client
 
 var mockery = exports
+
+mockery.response_message_data
 /**
  * Setup the mockery. This method should be called before each test.
  */
@@ -18,8 +20,12 @@ class XmppClientMock extends EventEmitter {
     this.connection.socket.setKeepAlive = function () {}
   }
 
-  send (msg) {
-    this.emit('sent', msg)
+  send (stanza) {
+    var message_id = JSON.parse(stanza.children[0]).message_id
+    var payload = Object.assign({}, { message_id }, mockery.response_message_data)
+    var message = new xmpp.Message()
+    message.c('gcm').t(JSON.stringify(payload))
+    this.emit('stanza', message)
   }
 
   connect () {
