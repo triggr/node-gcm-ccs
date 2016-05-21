@@ -19,7 +19,7 @@ class XmppClientMock extends EventEmitter {
   }
 
   send (msg) {
-
+    this.emit('sent', msg)
   }
 
   connect () {
