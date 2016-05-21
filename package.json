@@ -4,6 +4,7 @@
   "description": "Google Cloud Messaging via XMPP",
   "main": "node-gcm-ccs.js",
   "dependencies": {
+    "async": "2.0.0-rc.5",
     "node-xmpp-client": "3.0.1"
   },
   "devDependencies": {
