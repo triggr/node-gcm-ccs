@@ -23,5 +23,8 @@
   "repository": {
     "type": "git",
     "url": "git://github.com/jacobp100/node-gcm-ccs.git"
+  },
+  "engines": {
+    "node": ">= 4.0.0"
   }
 }
