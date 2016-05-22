@@ -1,1 +1,1 @@
-module.exports = require('./lib/node-gcm-ccs')
+module.exports = require('./lib/client')
