@@ -48,8 +48,10 @@ tap.test('reconnects if the connection has been closed due to draining', (t) => 
   var spy = sinon.spy()
   gcm.on('connected', spy)
   gcm.end()
-  t.ok(spy.called)
-  t.end()
+  setTimeout(() => {
+    t.ok(spy.called)
+    t.end()
+  }, 10)
 })
 
 
