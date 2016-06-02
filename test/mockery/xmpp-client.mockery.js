@@ -22,7 +22,9 @@ class XmppClientMock extends EventEmitter {
 
   send (stanza) {
     var message_id = JSON.parse(stanza.children[0]).message_id
-    var payload = Object.assign({}, { message_id }, mockery.response_message_data)
+    var from = JSON.parse(stanza.children[0]).to
+    var error = null
+    var payload = Object.assign(mockery.response_message_data, { message_id, from, error })
     var message = new xmpp.Message()
     message.c('gcm').t(JSON.stringify(payload))
     this.emit('stanza', message)

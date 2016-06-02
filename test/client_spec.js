@@ -57,22 +57,23 @@ tap.test('reconnects if the connection has been closed due to draining', (t) => 
 
 tap.test('handles `stanza` events from the xmpp connection', (t) => {
   t.autoend()
-
-  var token = '123'
-  var gcm
-
   t.beforeEach(done => {
     gcm = new GCMClient()
     gcm._client.connect()
     done()
   })
+
+  var token = '123'
+  var notification = {}
+  var gcm
+
   t.test('handles `control` messages', (t) => {
     mockery.response_message_data = {
       message_type: 'control',
       control_type: 'CONNECTION_DRAINING'
     }
 
-    gcm.send(token, {}, {})
+    gcm.send(token, notification)
     setTimeout(() => {
       t.ok(gcm._queue.paused === true)
       t.end()
@@ -84,13 +85,9 @@ tap.test('handles `stanza` events from the xmpp connection', (t) => {
       message_type: 'ack'
     }
 
-    var callbackSpy = sinon.spy()
-
-    gcm.send(token, {}, {}, callbackSpy)
-    setTimeout(() => {
-      t.ok(callbackSpy.called)
-      t.end()
-    }, 10)
+    gcm.send(token, notification)
+    .then(t.end)
+    .catch(t.error)
   })
 
   t.test('handles `nack` messages', (t) => {
@@ -98,13 +95,9 @@ tap.test('handles `stanza` events from the xmpp connection', (t) => {
       message_type: 'ack'
     }
 
-    var callbackSpy = sinon.spy()
-
-    gcm.send(token, {}, {}, callbackSpy)
-    setTimeout(() => {
-      t.ok(callbackSpy.called)
-      t.end()
-    }, 10)
+    gcm.send(token, notification)
+    .then(t.end)
+    .catch(t.error)
   })
 
   t.test('handles `receipt` messages', (t) => {
@@ -115,7 +108,8 @@ tap.test('handles `stanza` events from the xmpp connection', (t) => {
     var spy = sinon.spy()
     gcm.on('receipt', spy)
 
-    gcm.send(token, {}, {})
+    gcm.send(token, notification)
+
     setTimeout(() => {
       t.ok(spy.called)
       t.end()
@@ -162,11 +156,73 @@ tap.test('handles `stanza` events from the xmpp connection', (t) => {
   })
 })
 
+tap.test('.isSaturated', (t) => {
+  t.autoend()
+
+  var gcm
+
+  t.beforeEach(done => {
+    gcm = new GCMClient()
+    done()
+  })
+
+  t.test('returns false if the queue has below its concurrency limit', (t) => {
+    t.equals(gcm._queue.length(), 0)
+    t.notOk(gcm.isSaturated())
+    t.end()
+  })
+
+  t.test('returns true if the queue has exceeded its concurrency limit', (t) => {
+    t.equals(gcm._queue.length(), 0)
+    Array(100).fill(1).forEach(() => gcm.send(1, 2))
+    t.equals(gcm._queue.length(), 100)
+    t.ok(gcm.isSaturated())
+    t.end()
+  })
+})
+
+tap.test('.end', (t) => {
+  t.autoend()
+
+  var token = '123'
+  var notification = {}
+  var gcm
+
+  t.beforeEach(done => {
+    gcm = new GCMClient()
+    done()
+  })
+
+  t.test('ends if nothing is queued up', (t) => {
+    t.equals(gcm._queue.length(), 0)
+    gcm._client.connect()
+    gcm.end()
+
+    setTimeout(() => {
+      t.ok(gcm._queue.idle())
+      t.end()
+    }, 10)
+  })
+
+  t.test('waits for queue to be drained before closing', (t) => {
+    t.equals(gcm._queue.length(), 0)
+    gcm.send(token, notification)
+    t.equals(gcm._queue.length(), 1)
+    gcm.end()
+    gcm._client.connect()
+
+    setTimeout(() => {
+      t.notOk(gcm._queue.idle())
+      t.end()
+    }, 10)
+  })
+})
+
 tap.test('.send', (t) => {
   t.autoend()
 
   var token = '123'
-  var message = {}
+  var notification = {}
   var gcm
 
   t.beforeEach(done => {
@@ -176,23 +232,15 @@ tap.test('.send', (t) => {
   })
   t.test('method calls are queued if all ack slots are occupied', (t) => {
     t.equals(gcm._queue.length(), 0)
-    Array(100).fill(1).forEach(() => gcm.send(token, message, {}))
+    Array(100).fill(1).forEach(() => gcm.send(token, notification))
     t.equals(gcm._queue.length(), 100)
     t.end()
   })
 
   t.test('queued method calls are resolved once ack slots are vacated', (t) => {
     t.equals(gcm._queue.length(), 0)
-    Array(100).fill(1).forEach(() => gcm.send(token, message, {}))
+    Array(100).fill(1).forEach(() => gcm.send(token, notification))
     t.equals(gcm._queue.length(), 100)
-    Object.keys(gcm._acks).forEach(message_id => {
-      var message = new xmpp.Message()
-      message.c('gcm').t(JSON.stringify({
-        message_id,
-        message_type: 'ack'
-      }))
-      gcm._client.emit('stanza', message)
-    })
     setTimeout(() => {
       t.equals(gcm._queue.length(), 0)
       t.end()
@@ -200,21 +248,13 @@ tap.test('.send', (t) => {
   })
 
   t.test('messages are queued if the connection hasnt been established', (t) => {
+    mockery.response_message_data = { message_type: 'ack' }
+
     var gcm = new GCMClient()
     t.equals(gcm._queue.length(), 0)
-
-    gcm.send(token, message, {})
+    gcm.send(token, notification)
     t.equals(gcm._queue.length(), 1)
     gcm._client.connect()
-
-    var message_id = Object.keys(gcm._acks)[0]
-    var message = new xmpp.Message()
-    message.c('gcm').t(JSON.stringify({
-      message_id,
-      message_type: 'ack'
-    }))
-
-    gcm._client.emit('stanza', message)
 
     setTimeout(() => {
       t.equals(gcm._queue.length(), 0)
@@ -227,7 +267,7 @@ tap.test('.send', (t) => {
     gcm._client.connect()
     t.equals(gcm._queue.length(), 0)
 
-    gcm.send(token, message, {})
+    gcm.send(token, notification)
     setTimeout(() => {
       t.equals(gcm._queue.length(), 0)
       t.end()
