@@ -1,3 +1,5 @@
+'use strict'
+
 var EventEmitter = require('events')
 var xmpp = require('node-xmpp-client')
 
