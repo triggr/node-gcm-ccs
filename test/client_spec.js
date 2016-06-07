@@ -30,31 +30,6 @@ tap.test('emits `connected` event, when xmpp connection has been established', (
   t.end()
 })
 
-tap.test('emits `disconnected` event, when xmpp connection has been closed', (t) => {
-  var gcm = new GCMClient()
-  var spy = sinon.spy()
-  gcm.on('disconnected', spy)
-
-  gcm._client.connect()
-  gcm.end()
-
-  t.ok(spy.called)
-
-  t.end()
-})
-
-tap.test('reconnects if the connection has been closed due to draining', (t) => {
-  var gcm = new GCMClient()
-  var spy = sinon.spy()
-  gcm.on('connected', spy)
-  gcm.end()
-  setTimeout(() => {
-    t.ok(spy.called)
-    t.end()
-  }, 10)
-})
-
-
 tap.test('handles `stanza` events from the xmpp connection', (t) => {
   t.autoend()
   t.beforeEach(done => {
